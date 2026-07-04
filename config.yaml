@@ -1,0 +1,82 @@
+# triaged — example configuration
+# Copy to ~/.triaged/config.yaml and edit. Anything omitted uses the default shown.
+# Secrets are NEVER placed in this file: they're referenced via env vars or file paths.
+
+server:
+  listen: "127.0.0.1:8080"      # localhost-only by default (local-first)
+
+storage:
+  sqlite_path: "~/.triaged/triaged.db"
+
+# ── Extraction ────────────────────────────────────────────────────────────────
+# backend: api | ollama | mock   (mock is what CI uses)
+extraction:
+  backend: "api"
+
+  api:
+    provider: "anthropic"                 # anthropic | openai | ...
+    model: "claude-haiku-4-5"
+    api_key_env: "TRIAGED_LLM_API_KEY"    # name of env var holding the key (BYOK)
+    timeout: "10s"
+    max_retries: 2                        # retry-with-repair attempts
+    circuit_breaker:
+      failure_threshold: 5                # consecutive failures before opening
+      cooldown: "60s"
+
+  ollama:
+    base_url: "http://localhost:11434"
+    model: "qwen2.5:3b-instruct-q4_K_M"   # quantized ~3B fits in 6 GB VRAM
+    timeout: "30s"                        # local models are slower; be generous
+
+  # Degraded mode: after max_attempts failed extractions, route with nil
+  # extraction via conservative defaults — an event must never vanish.
+  fallback:
+    max_attempts: 3
+    default_outcome: "draft"              # draft | escalate (never auto_respond)
+
+# ── Ingestion ─────────────────────────────────────────────────────────────────
+ingestion:
+  app_store:
+    enabled: true
+    issuer_id: "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee"
+    key_id: "ABC123DEFG"
+    private_key_path: "~/.triaged/AuthKey_ABC123DEFG.p8"   # never inline the key
+    app_id: "1234567890"
+    poll_interval: "5m"                   # backoff on 429s is automatic
+
+  email:
+    enabled: true
+    mode: "imap"                          # imap | gmail_api
+    imap:
+      host: "imap.gmail.com"
+      port: 993
+      username: "support@example.com"
+      password_env: "TRIAGED_IMAP_PASSWORD"   # app password, via env
+      mailbox: "INBOX"
+    poll_interval: "2m"
+
+# ── Rules ─────────────────────────────────────────────────────────────────────
+# Policy lives in its own file so it can be versioned/diffed/dry-run separately.
+rules:
+  path: "./rules.yaml"
+  cel_cost_limit: 1000000                 # per-program eval budget (DoS guard)
+
+# ── Escalation SLAs ───────────────────────────────────────────────────────────
+# Urgency → deadline. Queue orders by deadline ASC.
+sla:
+  P1: "4h"
+  P2: "12h"
+  P3: "24h"
+  P4: "72h"
+
+# ── Side effects / reliability ────────────────────────────────────────────────
+outbox:
+  poll_interval: "5s"
+  max_retries: 5                          # then park as poison pill
+
+dlq:
+  retention_days: 90                      # prune resolved dead letters
+
+logging:
+  level: "info"                           # debug | info | warn | error
+  audit_log_path: "~/.triaged/audit.jsonl"
