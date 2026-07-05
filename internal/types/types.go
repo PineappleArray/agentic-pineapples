@@ -16,14 +16,16 @@ const (
 
 // Event is the normalized unit of work produced by ingestion.
 type Event struct {
-	ID         string            `json:"id"` // stable dedup key (review ID, message ID)
-	Source     Source            `json:"source"`
-	Author     string            `json:"author"`
-	Text       string            `json:"text"`
-	Metadata   map[string]string `json:"metadata"` // channel extras: rating, territory, subject...
-	Timestamp  time.Time         `json:"timestamp"`
-	Extraction *Extraction       `json:"extraction,omitempty"` // nil = extraction failed/skipped
-	Derived    map[string]string `json:"derived,omitempty"`    // enrichment-layer facts (is_vip, complaint_burst)
+	ID         string            // internal UUID, assigned at ingestion
+	Source     string            // "app_store" | "gmail" | "slack"
+	ExternalID string            // dedup key, unique per source (see below)
+	Author     string            // best-available identity
+	Text       string            // the content rules/extraction care about
+	Timestamp  time.Time         // when it happened at the source (not ingestion time)
+	Rating     *int              // nil for non-review sources
+	Metadata   map[string]string // source-specific, preserved for audit/UI
+	Derived    map[string]any    // enrichment layer writes here (counts, flags)
+	Extracted  *Extraction       // LLM output, attached later; nil = not yet / failed
 }
 
 // ~~~~~~~~~~~~~~~~~~~~~~~Extraction: the LLM's structured output

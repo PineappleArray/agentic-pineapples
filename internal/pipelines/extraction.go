@@ -3,7 +3,7 @@ package pipelines
 import (
 	"context"
 
-	"../types"
+	"github.com/PineappleArray/agentic-pineapples/internal/types"
 )
 
 type Extractor interface {

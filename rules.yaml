@@ -1,0 +1,158 @@
+# triaged — example ruleset
+# Everything in this file is POLICY: hashed into RulesetHash, diffable,
+# dry-run replayable. Changing a keyword here is a ruleset change.
+
+version: "2026-07-04.1"
+
+# ── Flag lexicons ─────────────────────────────────────────────────────────────
+# Deterministic keyword/phrase matching, run by the ENRICHMENT layer before
+# extraction. Matches populate event.text_flags (list of flag names).
+#
+# Semantics (enforced by the matcher, documented here so rule authors know):
+#   - case-insensitive
+#   - word-boundary matched ("sue" does not match "tissue")
+#   - multi-word phrases match as contiguous phrases
+#   - matching is presence-of-topic ONLY: it never sets category/sentiment.
+#     "I do NOT want a refund" still flags refund_related — rules must treat
+#     flags as signals, not conclusions.
+
+flags:
+  refund_related:
+    match:
+      - refund
+      - reimburse
+      - reimbursement
+      - money back
+      - my money
+      - chargeback
+      - charge back
+      - dispute the charge
+
+  billing_related:
+    match:
+      - charged twice
+      - double charged
+      - overcharged
+      - billing
+      - invoice
+      - subscription
+      - cancel my subscription
+      - unauthorized charge
+
+  legal_threat:
+    match:
+      - lawyer
+      - attorney
+      - legal action
+      - lawsuit
+      - small claims
+      - sue you
+      - suing
+      - report you to      # "...the FTC / BBB / Apple"
+
+  data_loss:
+    match:
+      - lost my data
+      - data is gone
+      - everything is gone
+      - lost all my
+      - deleted my
+      - disappeared
+      - wiped
+
+  security_concern:
+    match:
+      - hacked
+      - breach
+      - stolen
+      - password leaked
+      - someone else logged in
+
+  churn_risk:
+    match:
+      - uninstalling
+      - deleting the app
+      - switching to
+      - last chance
+      - done with this app
+
+# ── Rules ─────────────────────────────────────────────────────────────────────
+# Flags arrive as event.text_flags before evaluation. Extraction fields
+# (event.category, event.sentiment, ...) come from the LLM. Rules may combine
+# both. Remember: Evaluate is pure — flags were computed upstream.
+
+rules:
+  # -- Escalations (deterministic flags are strongest here: unambiguous
+  #    phrases should never wait on an LLM's opinion) --------------------
+
+  - id: escalate-legal-threat
+    priority: 100
+    condition: 'event.text_flags.exists(f, f == "legal_threat")'
+    outcome: escalate
+    urgency: p2
+
+  - id: escalate-data-loss-bug
+    priority: 100
+    condition: >
+      event.text_flags.exists(f, f == "data_loss")
+      && has(event.category) && event.category == "bug"
+    outcome: escalate
+    urgency: p1
+
+  - id: escalate-security
+    priority: 100
+    condition: 'event.text_flags.exists(f, f == "security_concern")'
+    outcome: escalate
+    urgency: p1
+
+  - id: escalate-complaint-spike
+    priority: 90
+    condition: 'has(event.derived.same_feature_complaints_1h) && event.derived.same_feature_complaints_1h >= 3'
+    outcome: escalate
+    urgency: p1
+
+  # -- Draft tier (flag + extraction combined) ---------------------------
+
+  - id: draft-refund-redirect
+    priority: 60
+    # Apple owns refunds: refund-related mail gets the templated
+    # redirect-to-Apple reply, always human-approved.
+    condition: 'event.text_flags.exists(f, f == "refund_related")'
+    outcome: draft
+
+  - id: draft-angry-billing
+    priority: 50
+    condition: >
+      (event.text_flags.exists(f, f == "billing_related")
+       || (has(event.category) && event.category == "billing"))
+      && has(event.sentiment) && event.sentiment == "negative"
+    outcome: draft
+
+  - id: draft-churn-risk
+    priority: 40
+    condition: 'event.text_flags.exists(f, f == "churn_risk")'
+    outcome: draft
+
+  - id: draft-low-confidence
+    priority: 30
+    condition: 'has(event.confidence) && event.confidence < 0.7'
+    outcome: draft
+
+  # -- Auto-respond (prefilter tier: these fire on raw fields + flags and
+  #    let trivial events skip the LLM entirely) -------------------------
+
+  - id: auto-thank-positive-review
+    priority: 10
+    condition: >
+      event.source == "appstore_review" && has(event.rating)
+      && event.rating == 5 && size(event.text) < 80
+      && size(event.text_flags) == 0
+    outcome: auto_respond
+
+  # -- Floor: nothing falls through ---------------------------------------
+
+  - id: default-catch-all
+    priority: 0
+    condition: "true"
+    outcome: draft
+    urgency: p3
