@@ -3,7 +3,6 @@ package rulesengine
 import (
 	"errors"
 	"fmt"
-	"reflect"
 
 	"github.com/PineappleArray/agentic-pineapples/internal/types"
 )
@@ -14,16 +13,8 @@ func (rs *Ruleset) validate_type() error {
 		return errors.New("Ruleset has no flags")
 	}
 	for key, arr := range rs.Flags {
-		if reflect.TypeOf(key) != reflect.TypeOf("") {
-			return fmt.Errorf("key %q is not a string", key)
-		}
 		if len(arr.Match) == 0 {
 			return fmt.Errorf("flag %q has no match patterns", key)
-		}
-		for i := range arr.Match {
-			if reflect.TypeOf(arr.Match[i]) != reflect.TypeOf("") {
-				return fmt.Errorf("Rule %s is not a string", arr.Match[i])
-			}
 		}
 	}
 	if len(rs.Rules) == 0 {

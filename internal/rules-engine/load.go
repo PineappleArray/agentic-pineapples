@@ -86,7 +86,6 @@ func Load(path string) (*Ruleset, error) {
 	}
 	if e := rs.validate_type(); e != nil {
 		return nil, e
-	} else {
-		return rs, nil
 	}
+	return rs, nil
 }
